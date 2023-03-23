@@ -24,8 +24,8 @@ def obter_acoes_ibovespa():
     acoes = pd.read_html(url, encoding="utf-8")[0][:-1]
     tickers = [acao.replace(" ", "") + '.SA' for acao in acoes['Código']]
     return tickers
-
-def obter_precos_historicos(tickers, start_date='2008-01-01', end_date='2022-12-20', file_name='precos_historicos.csv'):
+#
+def obter_precos_historicos(tickers, start_date='2008-01-01', end_date='2022-03-22', file_name='precos_historicos.csv'):
     if os.path.exists(file_name):
         precos = pd.read_csv(file_name, index_col=0, parse_dates=True)
         #if pd.to_datetime(end_date) > precos.index[-1]:
@@ -189,7 +189,7 @@ def main():
     X_train, X_test, y_train, y_test, tickers_train, tickers_test = train_test_split(
         X, y, tickers_dataset, test_size=0.3, random_state=42
     )
-    model = treinar_modelo(X_train, y_train)
+    model = treinar_modelo(X_train, y_train, model_path="model2008_2022.pkl")
 
     # Selecionar as 10 melhores ações
     melhores_acoes = selecionar_melhores_acoes(precos, model, n_acoes=10)
@@ -210,7 +210,7 @@ def main():
 
     periodos_simulados = [30, 90, 120, 365]
     for periodo in periodos_simulados:
-        lucros = simular_lucro_periodo(melhores_acoes, precos, periodo,)
+        lucros = simular_lucro_periodo(melhores_acoes, precos, periodo)
         print(f"Lucro acumulado após {periodo} dias: {sum(lucros):.2f}")
 
     plotar_lucro(lucros)
