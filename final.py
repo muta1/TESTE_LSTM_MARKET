@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import os
 import matplotlib
-matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
@@ -13,7 +12,7 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 from tensorflow.keras.optimizers import Adam
 from pypfopt.efficient_frontier import EfficientFrontier
-from pypfopt import risk_models
+from pypfopt import risk_models, objective_functions
 from pypfopt import expected_returns
 import ta
 import pickle
@@ -26,7 +25,7 @@ def obter_acoes_ibovespa():
     tickers = [acao.replace(" ", "") + '.SA' for acao in acoes['Código']]
     return tickers
 
-def obter_precos_historicos(tickers, start_date='2021-01-01', end_date='2023-03-21', file_name='precos_historicos.csv'):
+def obter_precos_historicos(tickers, start_date='2008-01-01', end_date='2022-12-20', file_name='precos_historicos.csv'):
     if os.path.exists(file_name):
         precos = pd.read_csv(file_name, index_col=0, parse_dates=True)
         #if pd.to_datetime(end_date) > precos.index[-1]:
@@ -86,7 +85,7 @@ def treinar_modelo(X_train, y_train, epochs=50, batch_size=64, force_retrain=Fal
 
     return model
 
-def selecionar_melhores_acoes(precos, model, n_acoes=10):
+def selecionar_melhores_acoes(precos, model, n_acoes=4):
     previsoes = {}
 
     # Prever o retorno de cada ação usando o modelo LSTM
@@ -142,7 +141,11 @@ def otimizar_portfolio(precos, melhores_acoes):
     # Criar um portfólio eficiente com base nos retornos esperados e matriz de covariância
     ef = EfficientFrontier(retornos_esperados, matriz_cov)
 
+    ef.add_objective(objective_functions.L2_reg, gamma=0.05)
+
     # Otimizar o portfólio para maximizar o índice Sharpe
+    calcparams = {"risk_aversion": 0.5}
+    #pesos_otimizados = ef.max_quadratic_utility(**calcparams)
     pesos_otimizados = ef.max_sharpe()
 
     # Converter os pesos brutos em pesos ajustados (porcentagens)
@@ -164,7 +167,7 @@ def simular_lucro_periodo(melhores_acoes, precos, periodo_dias):
             preco_hoje = precos.loc[precos.index[-dia], ticker]
             acoes_compradas = investimento_por_acao / preco_ontem
             lucro_dia += acoes_compradas * (preco_hoje - preco_ontem)
-            print("",dia," - ",ticker, " : ", lucro_dia)
+            #print("",dia," - ",ticker, " : ", lucro_dia)
         if (not np.isnan(lucro_dia)):
             lucros.append(lucro_dia)
 
@@ -189,22 +192,26 @@ def main():
     model = treinar_modelo(X_train, y_train)
 
     # Selecionar as 10 melhores ações
-    melhores_acoes = selecionar_melhores_acoes(precos, model)
+    melhores_acoes = selecionar_melhores_acoes(precos, model, n_acoes=10)
 
     # Otimizar a alocação do portfólio entre as melhores ações
-    alocação_otimizada = otimizar_portfolio(precos, melhores_acoes)
+    try:
+        alocação_otimizada = otimizar_portfolio(precos, melhores_acoes)
+        #melhores_acoes = list(filter(lambda acao: alocação_otimizada[acao] > 0, alocação_otimizada))
+        print("Alocação de recursos otimizada:")
+        for acao, peso in alocação_otimizada.items():
+            print(f"{acao}: {peso:.2%}")
+    except:
+        print("Ignorando otimizador de portifolio")
+    
 
-    alocação_otimizada = filter(lambda x : x != 0,alocação_otimizada)
-    print("Alocação de recursos otimizada:")
-    for ação, peso in alocação_otimizada.items():
-        print(f"{ação}: {peso:.2%}")
-
-    print("As 10 melhores ações para investir são:")
+    print("As melhores ações para investir são:")
     print(melhores_acoes)
 
-    periodo_dias = 20
-    lucros = simular_lucro_periodo(melhores_acoes, precos, periodo_dias)
-    print(f"Lucro acumulado após {periodo_dias} dias: {sum(lucros):.2f}")
+    periodos_simulados = [30, 90, 120, 365]
+    for periodo in periodos_simulados:
+        lucros = simular_lucro_periodo(melhores_acoes, precos, periodo,)
+        print(f"Lucro acumulado após {periodo} dias: {sum(lucros):.2f}")
 
     plotar_lucro(lucros)
 
