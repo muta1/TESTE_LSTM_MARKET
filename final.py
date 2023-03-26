@@ -1,6 +1,7 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import tensorflow as tf
 import os
 import matplotlib
 import matplotlib.pyplot as plt
@@ -17,6 +18,8 @@ from pypfopt import expected_returns
 import ta
 import pickle
 
+gps = tf.config.experimental.list_physical_devices('GPU')
+print(gps)
 
 # Etapa 1: Obter a lista de ações da Ibovespa
 def obter_acoes_ibovespa():
@@ -25,7 +28,7 @@ def obter_acoes_ibovespa():
     tickers = [acao.replace(" ", "") + '.SA' for acao in acoes['Código']]
     return tickers
 #
-def obter_precos_historicos(tickers, start_date='2008-01-01', end_date='2022-03-24', file_name='precos_historicos.csv'):
+def obter_precos_historicos(tickers, start_date='2022-01-01', end_date='2022-03-24', file_name='precos_historicos.csv'):
     if os.path.exists(file_name):
         precos = pd.read_csv(file_name, index_col=0, parse_dates=True)
         #if pd.to_datetime(end_date) > precos.index[-1]:
@@ -58,7 +61,7 @@ def calcular_retorno_medio(precos):
 
 
 
-def treinar_modelo(X_train, y_train, epochs=50, batch_size=64, force_retrain=False, model_path='model.pkl'):
+def treinar_modelo(X_train, y_train, epochs=100, batch_size=64, force_retrain=False, model_path='model.pkl'):
     if os.path.exists(model_path) and not force_retrain:
         # Carregar o modelo salvo
         with open(model_path, 'rb') as f:
@@ -185,7 +188,8 @@ def plotar_lucro(lucros, lucros2):
 
 def main():
     tickers = obter_acoes_ibovespa()
-    precos = obter_precos_historicos(tickers)
+    precos_prev = obter_precos_historicos(tickers, start_date='2022-01-01', end_date='2022-03-24')
+    precos = obter_precos_historicos(tickers, file_name="precos_historicos2008_2022.csv")
     
     X, y, tickers_dataset = criar_features(precos)
     X_train, X_test, y_train, y_test, tickers_train, tickers_test = train_test_split(
@@ -203,9 +207,9 @@ def main():
             alocação_otimizada = otimizar_portfolio(precos, melhores_acoes)
             melhores_acoes_port = list(map(lambda x: (x, alocação_otimizada[x]*100),filter(lambda acao: alocação_otimizada[acao] > 0, alocação_otimizada)))
             print("Alocação de recursos otimizada:")
-            for acao, peso in melhores_acoes_port.items():
-                print(f"{acao}: {peso:.2%}")
-        except:
+            for acao, peso in melhores_acoes_port:
+                print(f"{acao}: {peso}")
+        except Exception as e:
             print("Ignorando otimizador de portifolio")
     
     melhores_acoes = list(map(lambda x: (x,100/len(melhores_acoes)), melhores_acoes))
@@ -216,16 +220,16 @@ def main():
 
     print("LSTM")
 
-    periodos_simulados = [30, 90, 120, 365]
+    periodos_simulados = [30]
     for periodo in periodos_simulados:
-        lucros = simular_lucro_periodo(melhores_acoes, precos, periodo)
+        lucros = simular_lucro_periodo(melhores_acoes, precos_prev, periodo)
         print(f"Lucro acumulado após {periodo} dias: {sum(lucros):.2f}")
 
 
     if (melhores_acoes_port):
         print("LSTM + Optimizacao de portifilio")
         for periodo in periodos_simulados:
-            lucros2 = simular_lucro_periodo(melhores_acoes_port, precos, periodo)
+            lucros2 = simular_lucro_periodo(melhores_acoes_port, precos_prev, periodo)
             print(f"Lucro acumulado após {periodo} dias: {sum(lucros2):.2f}")
 
     plotar_lucro(lucros, lucros2)
