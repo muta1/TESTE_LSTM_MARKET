@@ -25,7 +25,7 @@ def obter_acoes_ibovespa():
     tickers = [acao.replace(" ", "") + '.SA' for acao in acoes['Código']]
     return tickers
 #
-def obter_precos_historicos(tickers, start_date='2008-01-01', end_date='2022-03-22', file_name='precos_historicos.csv'):
+def obter_precos_historicos(tickers, start_date='2008-01-01', end_date='2022-03-24', file_name='precos_historicos.csv'):
     if os.path.exists(file_name):
         precos = pd.read_csv(file_name, index_col=0, parse_dates=True)
         #if pd.to_datetime(end_date) > precos.index[-1]:
@@ -162,10 +162,11 @@ def simular_lucro_periodo(melhores_acoes, precos, periodo_dias):
 
     for dia in range(1, periodo_dias + 1):
         lucro_dia = 0
-        for ticker in melhores_acoes:
+        for ticker, porcentagem in melhores_acoes:
             preco_ontem = precos.loc[precos.index[-(dia + 1)], ticker]
             preco_hoje = precos.loc[precos.index[-dia], ticker]
-            acoes_compradas = investimento_por_acao / preco_ontem
+            #acoes_compradas = investimento_por_acao / preco_ontem
+            acoes_compradas = ((porcentagem/100)*investimento_inicial) / preco_ontem
             lucro_dia += acoes_compradas * (preco_hoje - preco_ontem)
             #print("",dia," - ",ticker, " : ", lucro_dia)
         if (not np.isnan(lucro_dia)):
@@ -174,8 +175,9 @@ def simular_lucro_periodo(melhores_acoes, precos, periodo_dias):
     return lucros
 
 
-def plotar_lucro(lucros):
-    plt.plot(np.cumsum(lucros))
+def plotar_lucro(lucros, lucros2):
+    plt.plot(np.cumsum(lucros), label="LSTM")
+    plt.plot(np.cumsum(lucros2), label="LSTM+PORT_OPT")
     plt.xlabel('Dias')
     plt.ylabel('Lucro acumulado')
     plt.title('Lucro acumulado durante o período de simulação')
@@ -193,27 +195,40 @@ def main():
 
     # Selecionar as 10 melhores ações
     melhores_acoes = selecionar_melhores_acoes(precos, model, n_acoes=10)
-
+    aplica_otimizador = True
     # Otimizar a alocação do portfólio entre as melhores ações
-    try:
-        alocação_otimizada = otimizar_portfolio(precos, melhores_acoes)
-        #melhores_acoes = list(filter(lambda acao: alocação_otimizada[acao] > 0, alocação_otimizada))
-        print("Alocação de recursos otimizada:")
-        for acao, peso in alocação_otimizada.items():
-            print(f"{acao}: {peso:.2%}")
-    except:
-        print("Ignorando otimizador de portifolio")
+    melhores_acoes_port = None
+    if (aplica_otimizador):
+        try:
+            alocação_otimizada = otimizar_portfolio(precos, melhores_acoes)
+            melhores_acoes_port = list(map(lambda x: (x, alocação_otimizada[x]*100),filter(lambda acao: alocação_otimizada[acao] > 0, alocação_otimizada)))
+            print("Alocação de recursos otimizada:")
+            for acao, peso in alocação_otimizada.items():
+                print(f"{acao}: {peso:.2%}")
+        except:
+            print("Ignorando otimizador de portifolio")
+    
+    melhores_acoes = list(map(lambda x: (x,100/len(melhores_acoes)), melhores_acoes))
     
 
     print("As melhores ações para investir são:")
     print(melhores_acoes)
+
+    print("LSTM")
 
     periodos_simulados = [30, 90, 120, 365]
     for periodo in periodos_simulados:
         lucros = simular_lucro_periodo(melhores_acoes, precos, periodo)
         print(f"Lucro acumulado após {periodo} dias: {sum(lucros):.2f}")
 
-    plotar_lucro(lucros)
+
+    if (melhores_acoes_port):
+        print("LSTM + Optimizacao de portifilio")
+        for periodo in periodos_simulados:
+            lucros2 = simular_lucro_periodo(melhores_acoes_port, precos, periodo)
+            print(f"Lucro acumulado após {periodo} dias: {sum(lucros2):.2f}")
+
+    plotar_lucro(lucros, lucros2)
 
 
 if __name__ == "__main__":
