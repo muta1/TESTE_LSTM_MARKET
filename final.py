@@ -181,7 +181,7 @@ def plotar_lucro(lucros, lucros2):
     plt.xlabel('Dias')
     plt.ylabel('Lucro acumulado')
     plt.title('Lucro acumulado durante o período de simulação')
-    plt.show()
+    plt.show(block=True)
 
 def main():
     tickers = obter_acoes_ibovespa()
