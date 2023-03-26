@@ -203,7 +203,7 @@ def main():
             alocação_otimizada = otimizar_portfolio(precos, melhores_acoes)
             melhores_acoes_port = list(map(lambda x: (x, alocação_otimizada[x]*100),filter(lambda acao: alocação_otimizada[acao] > 0, alocação_otimizada)))
             print("Alocação de recursos otimizada:")
-            for acao, peso in alocação_otimizada.items():
+            for acao, peso in melhores_acoes_port.items():
                 print(f"{acao}: {peso:.2%}")
         except:
             print("Ignorando otimizador de portifolio")
