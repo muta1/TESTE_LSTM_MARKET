@@ -17,6 +17,7 @@ from pypfopt import risk_models, objective_functions
 from pypfopt import expected_returns
 import ta
 import pickle
+from lista_acoes import  lista
 
 gps = tf.config.experimental.list_physical_devices('GPU')
 print(gps)
@@ -28,7 +29,7 @@ def obter_acoes_ibovespa():
     tickers = [acao.replace(" ", "") + '.SA' for acao in acoes['Código']]
     return tickers
 #
-def obter_precos_historicos(tickers, start_date='2022-01-01', end_date='2022-03-24', file_name='precos_historicos.csv'):
+def obter_precos_historicos(tickers, period=None, start_date='2008-01-01', end_date='2022-03-24', file_name='precos_historicos.csv'):
     if os.path.exists(file_name):
         precos = pd.read_csv(file_name, index_col=0, parse_dates=True)
         #if pd.to_datetime(end_date) > precos.index[-1]:
@@ -44,13 +45,27 @@ def obter_precos_historicos(tickers, start_date='2022-01-01', end_date='2022-03-
         #    precos.to_csv(file_name)
     else:
         precos = pd.DataFrame()
-        for ticker in tickers:
-            try:
-                data = yf.download(ticker, start=start_date, end=end_date)
-                if not data.empty:
-                    precos[ticker] = data['Adj Close']
-            except Exception as e:
-                print(f"Erro ao baixar dados do ticker {ticker}: {e}")
+        
+        if (period):
+            data = yf.download(",".join(tickers), period=period,  group_by="ticker")
+        else:
+            data = yf.download(",".join(tickers), start=start_date, end=end_date, group_by="ticker")
+        if not data.empty:
+            for ticker in tickers:
+                containsNan = data[ticker]['Adj Close'].isnull().values.any()
+                if not containsNan:
+                    precos[ticker] = data[ticker]['Adj Close']
+        #for ticker in tickers:
+        #    try:
+        #        data = []
+        #        if (period):
+        #            data = yf.download(ticker, period=period)
+        #        else:
+        #            data = yf.download(ticker, start=start_date, end=end_date)
+        #        if not data.empty:
+        #            precos[ticker] = data['Adj Close']
+        #    except Exception as e:
+        #        print(f"Erro ao baixar dados do ticker {ticker}: {e}")
         precos.to_csv(file_name)
     return precos
 
@@ -61,7 +76,7 @@ def calcular_retorno_medio(precos):
 
 
 
-def treinar_modelo(X_train, y_train, epochs=100, batch_size=64, force_retrain=False, model_path='model.pkl'):
+def treinar_modelo(X_train, y_train, epochs=50, batch_size=64, force_retrain=False, model_path='model.pkl'):
     if os.path.exists(model_path) and not force_retrain:
         # Carregar o modelo salvo
         with open(model_path, 'rb') as f:
@@ -133,24 +148,28 @@ def criar_features(precos, window=30):
     return np.array(X), np.array(y), tickers
 
 
-def otimizar_portfolio(precos, melhores_acoes):
+def otimizar_portfolio(precos, melhores_acoes, weight_bounds=None):
     # Filtrar os preços das ações selecionadas
     precos_selecionados = precos[melhores_acoes]
 
     # Calcular retornos esperados e matriz de covariância
     retornos_esperados = expected_returns.mean_historical_return(precos_selecionados)
-    matriz_cov = risk_models.sample_cov(precos_selecionados)
+    #matriz_risco = risk_models.sample_cov(precos_selecionados)
+    #matriz_risco = risk_models.semicovariance(precos_selecionados)
+    matriz_risco = risk_models.risk_matrix(precos_selecionados, method="ledoit_wolf_single_factor")
 
     # Criar um portfólio eficiente com base nos retornos esperados e matriz de covariância
-    ef = EfficientFrontier(retornos_esperados, matriz_cov)
-
+    if weight_bounds:
+        ef = EfficientFrontier(retornos_esperados, matriz_risco, weight_bounds = weight_bounds)
+    else:
+        ef = EfficientFrontier(retornos_esperados, matriz_risco)
     ef.add_objective(objective_functions.L2_reg, gamma=0.05)
 
     # Otimizar o portfólio para maximizar o índice Sharpe
     calcparams = {"risk_aversion": 0.5}
     #pesos_otimizados = ef.max_quadratic_utility(**calcparams)
     pesos_otimizados = ef.max_sharpe()
-
+    ef.portfolio_performance(verbose=True)
     # Converter os pesos brutos em pesos ajustados (porcentagens)
     pesos_otimizados = ef.clean_weights()
 
@@ -187,28 +206,28 @@ def plotar_lucro(lucros, lucros2):
     plt.show(block=True)
 
 def main():
-    tickers = obter_acoes_ibovespa()
-    precos_prev = obter_precos_historicos(tickers, start_date='2022-01-01', end_date='2022-03-24')
-    precos = obter_precos_historicos(tickers, file_name="precos_historicos2008_2022.csv")
+    tickers = lista #obter_acoes_ibovespa()
+    precos_prev = obter_precos_historicos(tickers, start_date='2023-01-01', end_date='2023-03-24')
+    precos = obter_precos_historicos(tickers,start_date='2008-01-01', end_date='2022-06-01', file_name="precos_historicos2008_2022.csv")
     
     X, y, tickers_dataset = criar_features(precos)
     X_train, X_test, y_train, y_test, tickers_train, tickers_test = train_test_split(
         X, y, tickers_dataset, test_size=0.3, random_state=42
     )
-    model = treinar_modelo(X_train, y_train, model_path="model2008_2022.pkl")
+    model = treinar_modelo(X_train, y_train, model_path="model2008_2022_linux.pkl")
 
-    # Selecionar as 10 melhores ações
+    # Selecionar as melhores ações
     melhores_acoes = selecionar_melhores_acoes(precos, model, n_acoes=10)
     aplica_otimizador = True
     # Otimizar a alocação do portfólio entre as melhores ações
     melhores_acoes_port = None
     if (aplica_otimizador):
         try:
-            alocação_otimizada = otimizar_portfolio(precos, melhores_acoes)
+            alocação_otimizada = otimizar_portfolio(precos, melhores_acoes, weight_bounds=None)
             melhores_acoes_port = list(map(lambda x: (x, alocação_otimizada[x]*100),filter(lambda acao: alocação_otimizada[acao] > 0, alocação_otimizada)))
             print("Alocação de recursos otimizada:")
-            for acao, peso in melhores_acoes_port:
-                print(f"{acao}: {peso}")
+            #for acao, peso in melhores_acoes_port:
+            #    print(f"{acao}: {peso}")
         except Exception as e:
             print("Ignorando otimizador de portifolio")
     
@@ -217,6 +236,8 @@ def main():
 
     print("As melhores ações para investir são:")
     print(melhores_acoes)
+    print("Investiremos em : ")
+    print(melhores_acoes_port)
 
     print("LSTM")
 
