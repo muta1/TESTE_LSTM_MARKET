@@ -2,6 +2,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import tensorflow as tf
+import json
 import os
 import matplotlib
 import matplotlib.pyplot as plt
@@ -89,7 +90,8 @@ def treinar_modelo(X_train, y_train, epochs=50, batch_size=64, force_retrain=Fal
         model = Sequential()
         model.add(LSTM(100, activation='relu', input_shape=(X_train.shape[1], X_train.shape[2]), return_sequences=True))
         model.add(Dropout(0.2))
-        model.add(LSTM(50, activation='relu', return_sequences=False))
+        #model.add(LSTM(50, activation='relu', return_sequences=False))
+        model.add(LSTM(100, activation='relu', return_sequences=False))
         model.add(Dropout(0.2))
         model.add(Dense(1))
         model.compile(optimizer='adam', loss='mse')
@@ -103,26 +105,34 @@ def treinar_modelo(X_train, y_train, epochs=50, batch_size=64, force_retrain=Fal
 
     return model
 
-def selecionar_melhores_acoes(precos, model, n_acoes=4):
-    previsoes = {}
+def selecionar_melhores_acoes(precos, model, n_acoes=4, file_name="melhores_acoes.json", force=False):
+    melhores_acoes = None
+    if os.path.exists(file_name) and not force:
+        with open(file_name) as user_file:
+            file_contents = user_file.read()
+            melhores_acoes = json.loads(file_contents)
+    else:
+        previsoes = {}
 
-    # Prever o retorno de cada ação usando o modelo LSTM
-    for ticker in precos.columns:
-        X, _, _2 = criar_features(precos[[ticker]])
-        X = X.reshape(X.shape[0], X.shape[1], X.shape[2])
-        previsoes[ticker] = model.predict(X)[-1][0]
+        # Prever o retorno de cada ação usando o modelo LSTM
+        for ticker in precos.columns:
+            X, _, _2 = criar_features(precos[[ticker]])
+            X = X.reshape(X.shape[0], X.shape[1], X.shape[2])
+            previsoes[ticker] = model.predict(X)[-1][0]
+        melhores_acoes = sorted(previsoes, key=previsoes.get, reverse=True)
+        # Selecionar as 10 melhores ações com base nas previsões
+        with open(file_name, 'w') as filehandle:
+            json.dump(list(melhores_acoes), filehandle)
 
-    # Selecionar as 10 melhores ações com base nas previsões
-    melhores_acoes = sorted(previsoes, key=previsoes.get, reverse=True)[:n_acoes]
-
+    melhores_acoes = melhores_acoes[:n_acoes]
     return melhores_acoes
 
 
 
 
-def criar_features(precos, window=30):
+def criar_features(precos, window=100):
     X, y, tickers = [], [], []
-    scaler = MinMaxScaler()
+    scaler = MinMaxScaler(feature_range=(0,1))
 
     for ticker in precos.columns:
         preco_ticker = precos[ticker].dropna()
@@ -133,8 +143,10 @@ def criar_features(precos, window=30):
         macd = ta.trend.macd(preco_ticker)
         bb_high, bb_mid, bb_low = ta.volatility.bollinger_hband(preco_ticker), ta.volatility.bollinger_mavg(preco_ticker), ta.volatility.bollinger_lband(preco_ticker)
 
-        df_indicadores = pd.concat([preco_ticker, sma, ema, rsi, macd, bb_high, bb_mid, bb_low], axis=1)
-        df_indicadores.columns = ['preco', 'sma', 'ema', 'rsi', 'macd', 'bb_high', 'bb_mid', 'bb_low']
+        #df_indicadores = pd.concat([preco_ticker, sma, ema, rsi, macd, bb_high, bb_mid, bb_low], axis=1)
+        #df_indicadores.columns = ['preco', 'sma', 'ema', 'rsi', 'macd', 'bb_high', 'bb_mid', 'bb_low']
+        df_indicadores = pd.concat([preco_ticker, macd, bb_high, bb_mid, bb_low], axis=1)
+        df_indicadores.columns = ['preco', 'macd', 'bb_high', 'bb_mid', 'bb_low']
         df_indicadores.dropna(inplace=True)
 
         # Escalonando os indicadores
@@ -156,6 +168,14 @@ def otimizar_portfolio(precos, melhores_acoes, weight_bounds=None):
     retornos_esperados = expected_returns.mean_historical_return(precos_selecionados)
     #matriz_risco = risk_models.sample_cov(precos_selecionados)
     #matriz_risco = risk_models.semicovariance(precos_selecionados)
+    #- ``sample_cov``
+    #- ``semicovariance``
+    #- ``exp_cov``
+    #- ``ledoit_wolf``
+    #- ``ledoit_wolf_constant_variance``
+    #- ``ledoit_wolf_single_factor``
+    #- ``ledoit_wolf_constant_correlation``
+    #- ``oracle_approximating``
     matriz_risco = risk_models.risk_matrix(precos_selecionados, method="ledoit_wolf_single_factor")
 
     # Criar um portfólio eficiente com base nos retornos esperados e matriz de covariância
@@ -207,29 +227,36 @@ def plotar_lucro(lucros, lucros2):
 
 def main():
     tickers = lista #obter_acoes_ibovespa()
-    precos_prev = obter_precos_historicos(tickers, start_date='2023-01-01', end_date='2023-03-24')
     precos = obter_precos_historicos(tickers,start_date='2008-01-01', end_date='2022-06-01', file_name="precos_historicos2008_2022.csv")
+    precos_prev = obter_precos_historicos(list(precos.columns), start_date='2022-06-02', end_date='2023-03-24')
+
+    remove_columns = list(set(precos.columns) - set(precos_prev.columns))
+
+    precos = precos.drop(columns=remove_columns)
     
     X, y, tickers_dataset = criar_features(precos)
     X_train, X_test, y_train, y_test, tickers_train, tickers_test = train_test_split(
         X, y, tickers_dataset, test_size=0.3, random_state=42
     )
     model = treinar_modelo(X_train, y_train, model_path="model2008_2022_linux.pkl")
-
+    force = False
     # Selecionar as melhores ações
-    melhores_acoes = selecionar_melhores_acoes(precos, model, n_acoes=10)
+    melhores_acoes = selecionar_melhores_acoes(precos_prev, model, n_acoes=15,force=force)
     aplica_otimizador = True
     # Otimizar a alocação do portfólio entre as melhores ações
     melhores_acoes_port = None
+    
     if (aplica_otimizador):
         try:
-            alocação_otimizada = otimizar_portfolio(precos, melhores_acoes, weight_bounds=None)
+            pesos = None
+            alocação_otimizada = otimizar_portfolio(precos, melhores_acoes, weight_bounds=pesos)
             melhores_acoes_port = list(map(lambda x: (x, alocação_otimizada[x]*100),filter(lambda acao: alocação_otimizada[acao] > 0, alocação_otimizada)))
             print("Alocação de recursos otimizada:")
             #for acao, peso in melhores_acoes_port:
             #    print(f"{acao}: {peso}")
         except Exception as e:
             print("Ignorando otimizador de portifolio")
+    
     
     melhores_acoes = list(map(lambda x: (x,100/len(melhores_acoes)), melhores_acoes))
     
@@ -241,7 +268,7 @@ def main():
 
     print("LSTM")
 
-    periodos_simulados = [30]
+    periodos_simulados = [20, 40, 80, len(list(precos_prev.index))-1]
     for periodo in periodos_simulados:
         lucros = simular_lucro_periodo(melhores_acoes, precos_prev, periodo)
         print(f"Lucro acumulado após {periodo} dias: {sum(lucros):.2f}")
