@@ -77,7 +77,7 @@ def calcular_retorno_medio(precos):
 
 
 
-def treinar_modelo(X_train, y_train, epochs=50, batch_size=64, force_retrain=False, model_path='model.pkl'):
+def treinar_modelo(X_train, y_train, epochs=100, batch_size=64, force_retrain=False, model_path='model.pkl'):
     if os.path.exists(model_path) and not force_retrain:
         # Carregar o modelo salvo
         with open(model_path, 'rb') as f:
@@ -90,8 +90,8 @@ def treinar_modelo(X_train, y_train, epochs=50, batch_size=64, force_retrain=Fal
         model = Sequential()
         model.add(LSTM(100, activation='relu', input_shape=(X_train.shape[1], X_train.shape[2]), return_sequences=True))
         model.add(Dropout(0.2))
-        #model.add(LSTM(50, activation='relu', return_sequences=False))
-        model.add(LSTM(100, activation='relu', return_sequences=False))
+        model.add(LSTM(50, activation='relu', return_sequences=False))
+        #model.add(LSTM(100, activation='relu', return_sequences=False))
         model.add(Dropout(0.2))
         model.add(Dense(1))
         model.compile(optimizer='adam', loss='mse')
@@ -145,8 +145,8 @@ def criar_features(precos, window=100):
 
         #df_indicadores = pd.concat([preco_ticker, sma, ema, rsi, macd, bb_high, bb_mid, bb_low], axis=1)
         #df_indicadores.columns = ['preco', 'sma', 'ema', 'rsi', 'macd', 'bb_high', 'bb_mid', 'bb_low']
-        df_indicadores = pd.concat([preco_ticker, macd, bb_high, bb_mid, bb_low], axis=1)
-        df_indicadores.columns = ['preco', 'macd', 'bb_high', 'bb_mid', 'bb_low']
+        df_indicadores = pd.concat([preco_ticker, sma, macd, bb_high, bb_mid, bb_low], axis=1)
+        df_indicadores.columns = ['preco', 'sma', 'macd', 'bb_high', 'bb_mid', 'bb_low']
         df_indicadores.dropna(inplace=True)
 
         # Escalonando os indicadores
@@ -189,6 +189,7 @@ def otimizar_portfolio(precos, melhores_acoes, weight_bounds=None):
     calcparams = {"risk_aversion": 0.5}
     #pesos_otimizados = ef.max_quadratic_utility(**calcparams)
     pesos_otimizados = ef.max_sharpe()
+    #pesos_otimizados = ef.min_volatility()
     ef.portfolio_performance(verbose=True)
     # Converter os pesos brutos em pesos ajustados (porcentagens)
     pesos_otimizados = ef.clean_weights()
