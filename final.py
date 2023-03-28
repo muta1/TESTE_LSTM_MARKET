@@ -228,8 +228,11 @@ def plotar_lucro(lucros, lucros2):
 
 def main():
     tickers = lista #obter_acoes_ibovespa()
-    precos = obter_precos_historicos(tickers,start_date='2008-01-01', end_date='2022-06-01', file_name="precos_historicos2008_2022.csv")
-    precos_prev = obter_precos_historicos(list(precos.columns), start_date='2022-06-02', end_date='2023-03-24')
+    train_start_date = '2008-01-01'
+    train_end_date = '2023-02-28'
+    filename_sufix = "_"+train_start_date+"_"+train_end_date
+    precos = obter_precos_historicos(tickers,start_date=train_start_date, end_date=train_end_date, file_name="precos_historicos"+filename_sufix+".csv")
+    precos_prev = obter_precos_historicos(list(precos.columns), start_date='2023-03-01', end_date='2023-03-24', file_name="precos_historicos20230228_20230424.csv")
 
     remove_columns = list(set(precos.columns) - set(precos_prev.columns))
 
@@ -239,7 +242,7 @@ def main():
     X_train, X_test, y_train, y_test, tickers_train, tickers_test = train_test_split(
         X, y, tickers_dataset, test_size=0.3, random_state=42
     )
-    model = treinar_modelo(X_train, y_train, model_path="model2008_2022_linux.pkl")
+    model = treinar_modelo(X_train, y_train, model_path="model"+filename_sufix+"_linux.pkl")
     force = False
     # Selecionar as melhores ações
     melhores_acoes = selecionar_melhores_acoes(precos_prev, model, n_acoes=15,force=force)
@@ -269,7 +272,7 @@ def main():
 
     print("LSTM")
 
-    periodos_simulados = [20, 40, 80, len(list(precos_prev.index))-1]
+    periodos_simulados = [len(list(precos_prev.index))-1]
     for periodo in periodos_simulados:
         lucros = simular_lucro_periodo(melhores_acoes, precos_prev, periodo)
         print(f"Lucro acumulado após {periodo} dias: {sum(lucros):.2f}")
